@@ -18,6 +18,8 @@ Usage
 $('.some-time-inputs').timepicker(options);
 ```
 
+Include `jquery.timepicker.css` and `jquery.timepicker.min.js` in your page.
+
 ```options``` is an optional javascript object with parameters explained below.
 
 You can also set options as [data attributes](https://developer.mozilla.org/en-US/docs/Web/Guide/HTML/Using_data_attributes) on the intput elements, like ```<input type="text" data-time-format="H:i:s" />```. Timepicker still needs to be initialized by calling ```$('#someElement').timepicker();```.
@@ -41,11 +43,15 @@ Close the timepicker when the window is scrolled. (Replicates ```<select>``` beh
 *default: false*
 
 - **disableTimeRanges**  
-Disable selection of certain time ranges. Input is an array of time pairs, like ```[['3:00am', '4:30am'], ['5:00pm', '8:00pm']]``  
+Disable selection of certain time ranges. Input is an array of time pairs, like ```[['3:00am', '4:30am'], ['5:00pm', '8:00pm']]``. The start of the interval will be disabled but the end won't.
 *default: []*
 
+- **disableTextInput**  
+Disable typing in the timepicker input box; force users to select from list. [More information here.](https://github.com/jonthornton/jquery-timepicker/issues/425#issuecomment-133262458)  
+*default: false*
+
 - **disableTouchKeyboard**  
-Disable the onscreen keyboard for touch devices.  
+Disable the onscreen keyboard for touch devices. There can be instances where Firefox or Chrome have touch events enabled (such as on Surface tablets but not actually be a touch device. In this case `disableTouchKeyboard` will prevent the timepicker input field from being focused. [More information here.](https://github.com/jonthornton/jquery-timepicker/issues/413)  
 *default: false*
 
 - **durationTime**  
@@ -59,6 +65,10 @@ Force update the time to ```step``` settings as soon as it loses focus.
 - **lang**  
 Language constants used in the timepicker. Can override the defaults by passing an object with one or more of the following properties: decimal, mins, hr, hrs.  
 *default:* ```{
+	am: 'am',
+	pm: 'pm',
+	AM: 'AM',
+	PM: 'PM',
 	decimal: '.',
 	mins: 'mins',
 	hr: 'hr',
@@ -81,6 +91,14 @@ Object: Similar to string, but allows customizing the element's class name and t
 Array: An array of strings or objects to add multiple non-time options  
 *default: false*
 
+- **orientation**  
+By default the timepicker dropdown will be aligned to the bottom right of the input element, or aligned to the top left if there isn't enough room below the input. Force alignment with `l` (left), `r` (right), `t` (top), and `b` (bottom). Examples: `tl`, `rb`.
+*default: 'l'*
+
+- **roundingFunction**  
+Function used to compute rounded times. The function will receive time in seconds and a settings object as arguments. The functino should handle a null value for seconds.
+*default: round to nearest step*
+
 - **scrollDefault**  
 If no time value is selected, set the dropdown scroll position to show the time provided, e.g. "09:00". A time string, Date object, or integer (seconds past midnight) is acceptible, as well as the string `'now'`.   
 *default: null*
@@ -89,20 +107,32 @@ If no time value is selected, set the dropdown scroll position to show the time 
 Update the input with the currently highlighted time value when the timepicker loses focus.  
 *default: false*
 
+- **show2400**  
+Show "24:00" as an option when using 24-hour time format.  
+*default: false*
+
 - **showDuration**  
 Shows the relative time for each item in the dropdown. ```minTime``` or ```durationTime``` must be set.  
 *default: false*
 
+- **showOn**  
+Display a timepicker dropdown when the input fires a particular event. Set to null or an empty array to disable automatic display. Setting should be an array of strings.
+*default: ['focus']*
+
 - **showOnFocus**  
-Display a timepicker dropdown when the input gains focus.  
+DEPRECATED: Display a timepicker dropdown when the input gains focus.  
 *default: true*
 
 - **step**  
-The amount of time, in minutes, between each item in the dropdown.  
+The amount of time, in minutes, between each item in the dropdown. Alternately, you can specify a function to generate steps dynamically. The function will receive a count integer (0, 1, 2...) and is expected to return a step integer.  
 *default: 30*
 
+- **stopScrollPropagation**  
+When scrolling on the edge of the picker, it prevent parent containers (<body>) to scroll.
+*default: false*
+
 - **timeFormat**  
-How times should be displayed in the list and input element. Uses [PHP's date() formatting syntax](http://php.net/manual/en/function.date.php). Characters can be escaped with a preceeding double slash (e.g. `H\\hi`). 
+How times should be displayed in the list and input element. Uses [PHP's date() formatting syntax](http://php.net/manual/en/function.date.php). Characters can be escaped with a preceeding double slash (e.g. `H\\hi`). Alternatively, you can specify a function instead of a string, to use completely custom time formatting. In this case, the format function receives a Date object and is expected to return a formatted time as a string.
 *default: 'g:ia'*
 
 - **typeaheadHighlight**  
@@ -110,8 +140,8 @@ Highlight the nearest corresponding time option as a value is typed into the for
 *default: true*
 
 - **useSelect**  
-Convert the input to an HTML `<SELECT>` control. This is ideal for small screen devices, or if you want to prevent the user from entering arbitrary values. This option is not compatible with the following options: ```appendTo```, ```closeOnWindowScroll```, ```disableTouchKeyboard```, ```forceRoundTime```, ```scrollDefaultNow```, ```selectOnBlur```, ```typeAheadHighlight```.  
-*default: true*
+Convert the input to an HTML `<SELECT>` control. This is ideal for small screen devices, or if you want to prevent the user from entering arbitrary values. This option is not compatible with the following options: ```appendTo```, ```closeOnWindowScroll```, ```disableTouchKeyboard```, ```forceRoundTime```, ```scrollDefault```, ```selectOnBlur```, ```typeAheadHighlight```.  
+*default: false*
 
 Methods
 -------
@@ -124,10 +154,11 @@ Get the time as an integer, expressed as seconds from 12am.
 	```
 
 - **getTime**  
-Get the time using a Javascript Date object, relative to a Date object (default: today).
+Get the time using a Javascript Date object, relative to a Date object (default: Jan 1, 1970).
 
 	```javascript
-	$('#getTimeExample').timepicker('getTime'[, new Date()]);
+	$('#getTimeExample').timepicker('getTime');
+	$('#getTimeExample').timepicker('getTime', new Date());
 	```
 
 	You can get the time as a string using jQuery's built-in ```val()``` function:
@@ -198,6 +229,8 @@ Called if an unparseable time string is manually entered into the timepicker inp
 - **timeRangeError**  
 Called if a maxTime, minTime, or disableTimeRanges is set and an invalid time is manually entered into the timepicker input. Fires before ```change``` event.
 
+The `selectTime` and `hideTimepicker` events fire slightly differently when using the `useSelect` option. See https://github.com/jonthornton/jquery-timepicker/issues/427 for more information.
+
 Theming
 -------
 
@@ -206,27 +239,31 @@ Sample markup with class names:
 ```html
 <input value="5:00pm" class="ui-timepicker-input" type="text">
 ...
-<div class="ui-timepicker-wrapper optional-custom-classname" tabindex="-1">
+<div class="ui-timepicker-wrapper ui-timepicker-positioned-top optional-custom-classname" tabindex="-1">
 	<ul class="ui-timepicker-list">
-		<li>12:00am</li>
-		<li>12:30am</li>
+		<li class="ui-timepicker-am">12:00am</li>
+		<li class="ui-timepicker-am">12:30am</li>
 		...
-		<li>4:30pm</li>
-		<li class="ui-timepicker-selected">5:00pm</li>
-		<li class="ui-timepicker-disabled">5:30pm</li>
-		<li>6:00pm <span class="ui-timepicker-duration">(1 hour)</span></li>
-		<li>6:30pm</li>
+		<li class="ui-timepicker-pm">4:30pm</li>
+		<li class="ui-timepicker-pm ui-timepicker-selected">5:00pm</li>
+		<li class="ui-timepicker-pm ui-timepicker-disabled">5:30pm</li>
+		<li class="ui-timepicker-pm">6:00pm <span class="ui-timepicker-duration">(1 hour)</span></li>
+		<li class="ui-timepicker-pm">6:30pm</li>
 		...
-		<li>11:30pm</li>
+		<li class="ui-timepicker-pm">11:30pm</li>
 	</ul>
 </div>
 ```
+
+The `ui-timepicker-positioned-top` class will be applied only when the dropdown is positioned above the input.
 
 ## Packaging
 
 Install from [Bower](http://bower.io/) as ```jquery-timepicker-jt```.
 
 An AngularJS directive is available at https://github.com/Recras/angular-jquery-timepicker
+
+Available via CDN at [https://cdnjs.com/libraries/jquery-timepicker](https://cdnjs.com/libraries/jquery-timepicker).
 
 Help
 ----
@@ -238,6 +275,8 @@ Development guidelines
 
 1. Install dependencies (jquery + grunt) `npm install`
 2. For sanity checks and minification run `grunt`, or just `grunt lint` to have the code linted
+ 
+jquery-timepicker follows [semantic versioning](http://semver.org/).
 
 - - -
 

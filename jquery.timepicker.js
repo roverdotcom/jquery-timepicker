@@ -1,13 +1,16 @@
-/************************
-jquery-timepicker v1.4.6
-http://jonthornton.github.com/jquery-timepicker/
-
-requires jQuery 1.7+
-************************/
+/*!
+ * jquery-timepicker v1.8.8 - A jQuery timepicker plugin inspired by Google Calendar. It supports both mouse and keyboard navigation.
+ * Copyright (c) 2015 Jon Thornton - http://jonthornton.github.com/jquery-timepicker/
+ * License: MIT
+ */
 
 
 (function (factory) {
-	if (typeof define === 'function' && define.amd) {
+    if (typeof exports === "object" && exports &&
+        typeof module === "object" && module && module.exports === exports) {
+        // Browserify. Attach to jQuery module.
+        factory(require("jquery"));
+    } else if (typeof define === 'function' && define.amd) {
 		// AMD. Register as an anonymous module.
 		define(['jquery'], factory);
 	} else {
@@ -28,8 +31,7 @@ requires jQuery 1.7+
 		hrs: 'hrs'
 	};
 
-	var methods =
-	{
+	var methods = {
 		init: function(options)
 		{
 			return this.each(function()
@@ -58,10 +60,17 @@ requires jQuery 1.7+
 					_render(self);
 				} else {
 					self.prop('autocomplete', 'off');
-					self.on('click.timepicker focus.timepicker', methods.show);
+					if (settings.showOn) {
+						for (i in settings.showOn) {
+							self.on(settings.showOn[i]+'.timepicker', methods.show);
+						}
+					}
 					self.on('change.timepicker', _formatValue);
 					self.on('keydown.timepicker', _keydownhandler);
 					self.on('keyup.timepicker', _keyuphandler);
+					if (settings.disableTextInput) {
+						self.on('keydown.timepicker', function(e) { e.preventDefault(); });
+					}
 
 					_formatValue.call(self.get(0));
 				}
@@ -74,10 +83,6 @@ requires jQuery 1.7+
 			var settings = self.data('timepicker-settings');
 
 			if (e) {
-				if (!settings.showOnFocus) {
-					return true;
-				}
-
 				e.preventDefault();
 			}
 
@@ -104,9 +109,12 @@ requires jQuery 1.7+
 				list = self.data('timepicker-list');
 			}
 
-			if (list.is(':visible')) {
+			if (_isVisible(list)) {
 				return;
 			}
+
+			self.data('ui-timepicker-value', self.val());
+			_setSelected(self, list);
 
 			// make sure other pickers are hidden
 			methods.hide();
@@ -115,7 +123,7 @@ requires jQuery 1.7+
 			list.show();
 			var listOffset = {};
 
-			if (settings.orientation == 'rtl') {
+			if (settings.orientation.match(/r/)) {
 				// right-align the dropdown
 				listOffset.left = self.offset().left + self.outerWidth() - list.outerWidth() + parseInt(list.css('marginLeft').replace('px', ''), 10);
 			} else {
@@ -123,11 +131,24 @@ requires jQuery 1.7+
 				listOffset.left = self.offset().left + parseInt(list.css('marginLeft').replace('px', ''), 10);
 			}
 
-			if ((self.offset().top + self.outerHeight(true) + list.outerHeight()) > $(window).height() + $(window).scrollTop()) {
+			var verticalOrientation;
+			if (settings.orientation.match(/t/)) {
+				verticalOrientation = 't';
+			} else if (settings.orientation.match(/b/)) {
+				verticalOrientation = 'b';
+			} else if ((self.offset().top + self.outerHeight(true) + list.outerHeight()) > $(window).height() + $(window).scrollTop()) {
+				verticalOrientation = 't';
+			} else {
+				verticalOrientation = 'b';
+			}
+
+			if (verticalOrientation == 't') {
 				// position the dropdown on top
+				list.addClass('ui-timepicker-positioned-top');
 				listOffset.top = self.offset().top - list.outerHeight() + parseInt(list.css('marginTop').replace('px', ''), 10);
 			} else {
 				// put it under the input
+				list.removeClass('ui-timepicker-positioned-top');
 				listOffset.top = self.offset().top + self.outerHeight() + parseInt(list.css('marginTop').replace('px', ''), 10);
 			}
 
@@ -137,10 +158,11 @@ requires jQuery 1.7+
 			var selected = list.find('.ui-timepicker-selected');
 
 			if (!selected.length) {
-				if (_getTimeValue(self)) {
-					selected = _findRow(self, list, _time2int(_getTimeValue(self)));
+				var timeInt = _time2int(_getTimeValue(self));
+				if (timeInt !== null) {
+					selected = _findRow(self, list, timeInt);
 				} else if (settings.scrollDefault) {
-					selected = _findRow(self, list, settings.scrollDefault);
+					selected = _findRow(self, list, settings.scrollDefault());
 				}
 			}
 
@@ -151,8 +173,18 @@ requires jQuery 1.7+
 				list.scrollTop(0);
 			}
 
+			// prevent scroll propagation
+			if(settings.stopScrollPropagation) {
+				$(document).on('wheel.ui-timepicker', '.ui-timepicker-wrapper', function(e){
+					e.preventDefault();
+					var currentScroll = $(this).scrollTop();
+					$(this).scrollTop(currentScroll + e.originalEvent.deltaY);
+				});
+			}
+
 			// attach close handlers
 			$(document).on('touchstart.ui-timepicker mousedown.ui-timepicker', _closeHandler);
+			$(window).on('resize.ui-timepicker', _closeHandler);
 			if (settings.closeOnWindowScroll) {
 				$(document).on('scroll.ui-timepicker', _closeHandler);
 			}
@@ -171,8 +203,12 @@ requires jQuery 1.7+
 				self.blur();
 			}
 
-			$('.ui-timepicker-wrapper:visible').each(function() {
+			$('.ui-timepicker-wrapper').each(function() {
 				var list = $(this);
+				if (!_isVisible(list)) {
+					return;
+				}
+
 				var self = list.data('timepicker-input');
 				var settings = self.data('timepicker-settings');
 
@@ -233,12 +269,16 @@ requires jQuery 1.7+
 				return null;
 			}
 
-			if (!relative_date) {
-				relative_date = new Date();
-			}
 			var offset = _time2int(time_string);
+			if (offset === null) {
+				return null;
+			}
 
-			// construct a Date with today's date, and offset's time
+			if (!relative_date) {
+				relative_date = _baseDate;
+			}
+
+			// construct a Date from relative date, and offset's time
 			var time = new Date(relative_date);
 			time.setHours(offset / 3600);
 			time.setMinutes(offset % 3600 / 60);
@@ -254,9 +294,13 @@ requires jQuery 1.7+
 			var settings = self.data('timepicker-settings');
 
 			if (settings.forceRoundTime) {
-				var prettyTime = _roundAndFormatTime(value, settings)
+				var prettyTime = _roundAndFormatTime(_time2int(value), settings)
 			} else {
-				var prettyTime = _int2time(_time2int(value), settings.timeFormat);
+				var prettyTime = _int2time(_time2int(value), settings);
+			}
+
+			if (value && prettyTime === null && settings.noneOption) {
+				prettyTime = value;
 			}
 
 			_setTimeValue(self, prettyTime);
@@ -299,6 +343,12 @@ requires jQuery 1.7+
 
 	// private methods
 
+	function _isVisible(elem)
+	{
+		var el = elem[0];
+		return el.offsetWidth > 0 && el.offsetHeight > 0;
+	}
+
 	function _parseSettings(settings)
 	{
 		if (settings.minTime) {
@@ -314,19 +364,26 @@ requires jQuery 1.7+
 		}
 
 		if (settings.scrollDefault == 'now') {
-			settings.scrollDefault = _time2int(new Date());
-		} else if (settings.scrollDefault) {
-			settings.scrollDefault = _time2int(settings.scrollDefault);
+			settings.scrollDefault = function() {
+				return settings.roundingFunction(_time2int(new Date()), settings);
+			}
+		} else if (settings.scrollDefault && typeof settings.scrollDefault != 'function') {
+			var val = settings.scrollDefault;
+			settings.scrollDefault = function() {
+				return settings.roundingFunction(_time2int(val), settings);
+			}
 		} else if (settings.minTime) {
-			settings.scrollDefault = settings.minTime;
+			settings.scrollDefault = function() {
+				return settings.roundingFunction(settings.minTime, settings);
+			}
 		}
 
-		if (settings.scrollDefault) {
-			settings.scrollDefault = _roundTime(settings.scrollDefault, settings);
-		}
-
-		if (settings.timeFormat.match(/[gh]/)) {
+		if ($.type(settings.timeFormat) === "string" && settings.timeFormat.match(/[gh]/)) {
 			settings._twelveHourTime = true;
+		}
+
+		if (settings.showOnFocus === false && settings.showOn.indexOf('focus') != -1) {
+			settings.showOn.splice(settings.showOn.indexOf('focus'), 1);
 		}
 
 		if (settings.disableTimeRanges.length > 0) {
@@ -385,7 +442,7 @@ requires jQuery 1.7+
 
 			if ($.isArray(settings.noneOption)) {
 				for (var i in settings.noneOption) {
-					if (parseInt(i, 10) === i){
+					if (parseInt(i, 10) == i){
 						var noneElement = _generateNoneElement(settings.noneOption[i], settings.useSelect);
 						list.append(noneElement);
 					}
@@ -401,6 +458,7 @@ requires jQuery 1.7+
 		}
 
 		if ((settings.minTime !== null || settings.durationTime !== null) && settings.showDuration) {
+			var stepval = typeof settings.step == 'function' ? 'function' : settings.step;
 			wrapped_list.addClass('ui-timepicker-with-duration');
 			wrapped_list.addClass('ui-timepicker-step-'+settings.step);
 		}
@@ -414,12 +472,12 @@ requires jQuery 1.7+
 		var start = (settings.minTime !== null) ? settings.minTime : 0;
 		var end = (settings.maxTime !== null) ? settings.maxTime : (start + _ONE_DAY - 1);
 
-		if (end <= start) {
+		if (end < start) {
 			// make sure the end time is greater than start time, otherwise there will be no list to show
 			end += _ONE_DAY;
 		}
 
-		if (end === _ONE_DAY-1 && settings.timeFormat.indexOf('H') !== -1) {
+		if (end === _ONE_DAY-1 && $.type(settings.timeFormat) === "string" && settings.show2400) {
 			// show a 24:00 option when using military time
 			end = _ONE_DAY;
 		}
@@ -428,15 +486,23 @@ requires jQuery 1.7+
 		var drCur = 0;
 		var drLen = dr.length;
 
-		for (var i=start; i <= end; i += settings.step*60) {
+		var stepFunc = settings.step;
+		if (typeof stepFunc != 'function') {
+			stepFunc = function() {
+				return settings.step;
+			}
+		}
+
+		for (var i=start, j=0; i <= end; j++, i += stepFunc(j)*60) {
 			var timeInt = i;
-			var timeString = _int2time(timeInt, settings.timeFormat);
+			var timeString = _int2time(timeInt, settings);
 
 			if (settings.useSelect) {
 				var row = $('<option />', { 'value': timeString });
 				row.text(timeString);
 			} else {
 				var row = $('<li />');
+				row.addClass(timeInt % 86400 < 43200 ? 'ui-timepicker-am' : 'ui-timepicker-pm');
 				row.data('time', (timeInt <= 86400 ? timeInt : timeInt % 86400));
 				row.text(timeString);
 			}
@@ -473,7 +539,10 @@ requires jQuery 1.7+
 		self.data('timepicker-list', wrapped_list);
 
 		if (settings.useSelect) {
-			list.val(_roundAndFormatTime(self.val(), settings));
+			if (self.val()) {
+				list.val(_roundAndFormatTime(_time2int(self.val()), settings));
+			}
+
 			list.on('focus', function(){
 				$(this).data('timepicker-input').trigger('showTimepicker');
 			});
@@ -484,6 +553,7 @@ requires jQuery 1.7+
 				_setTimeValue(self, $(this).val(), 'select');
 			});
 
+			_setTimeValue(self, list.val(), 'initial');
 			self.hide().after(list);
 		} else {
 			var appendTo = settings.appendTo;
@@ -516,7 +586,11 @@ requires jQuery 1.7+
 
 				if (_selectValue(self)) {
 					self.trigger('hideTimepicker');
-					wrapped_list.hide();
+
+					list.on('mouseup.timepicker', 'li', function(e) {
+						list.off('mouseup.timepicker');
+						wrapped_list.hide();
+					});
 				}
 			});
 		}
@@ -550,34 +624,11 @@ requires jQuery 1.7+
 		}
 	}
 
-	function _roundTime(seconds, settings)
-	{
-		if (!$.isNumeric(seconds)) {
-			seconds = _time2int(seconds);
-		}
-
-		if (seconds === null) {
-			return null;
-		} else {
-			var offset = seconds % (settings.step*60); // step is in minutes
-
-			if (offset >= settings.step*30) {
-				// if offset is larger than a half step, round up
-				seconds += (settings.step*60) - offset;
-			} else {
-				// round down
-				seconds -= offset;
-			}
-
-			return seconds;
-		}
-	}
-
 	function _roundAndFormatTime(seconds, settings)
 	{
-		seconds = _roundTime(seconds, settings);
+		seconds = settings.roundingFunction(seconds, settings);
 		if (seconds !== null) {
-			return _int2time(seconds, settings.timeFormat);
+			return _int2time(seconds, settings);
 		}
 	}
 
@@ -594,6 +645,7 @@ requires jQuery 1.7+
 		if (input.length === 0 && target.closest('.ui-timepicker-wrapper').length === 0) {
 			methods.hide();
 			$(document).unbind('.ui-timepicker');
+			$(window).unbind('.ui-timepicker');
 		}
 	}
 
@@ -611,7 +663,7 @@ requires jQuery 1.7+
 
 		var settings = self.data('timepicker-settings');
 		var out = false;
-		var halfStep = settings.step*30;
+		var value = settings.roundingFunction(value, settings);
 
 		// loop through the menu items
 		list.find('li').each(function(i, obj) {
@@ -620,10 +672,7 @@ requires jQuery 1.7+
 				return;
 			}
 
-			var offset = jObj.data('time') - value;
-
-			// check if the value is less than half a step from each row
-			if (Math.abs(offset) < halfStep || offset == halfStep) {
+			if (jObj.data('time') == value) {
 				out = jObj;
 				return false;
 			}
@@ -655,27 +704,26 @@ requires jQuery 1.7+
 	}
 
 
-	function _formatValue(e)
+	function _formatValue(e, origin)
 	{
-		if (this.value === '') {
+		if (this.value === '' || origin == 'timepicker') {
 			return;
 		}
 
 		var self = $(this);
-		var list = self.data('timepicker-list');
 
 		if (self.is(':focus') && (!e || e.type != 'change')) {
 			return;
 		}
 
-		var seconds = _time2int(this.value);
+		var settings = self.data('timepicker-settings');
+		var seconds = _time2int(this.value, settings);
 
 		if (seconds === null) {
 			self.trigger('timeFormatError');
 			return;
 		}
 
-		var settings = self.data('timepicker-settings');
 		var rangeError = false;
 		// check that the time in within bounds
 		if (settings.minTime !== null && seconds < settings.minTime) {
@@ -693,18 +741,10 @@ requires jQuery 1.7+
 		});
 
 		if (settings.forceRoundTime) {
-			var offset = seconds % (settings.step*60); // step is in minutes
-
-			if (offset >= settings.step*30) {
-				// if offset is larger than a half step, round up
-				seconds += (settings.step*60) - offset;
-			} else {
-				// round down
-				seconds -= offset;
-			}
+			seconds = settings.roundingFunction(seconds, settings);
 		}
 
-		var prettyTime = _int2time(seconds, settings.timeFormat);
+		var prettyTime = _int2time(seconds, settings);
 
 		if (rangeError) {
 			if (_setTimeValue(self, prettyTime, 'error')) {
@@ -731,15 +771,15 @@ requires jQuery 1.7+
 			self.val(value);
 
 			var settings = self.data('timepicker-settings');
-			if (settings.useSelect) {
-				self.data('timepicker-list').val(_roundAndFormatTime(value, settings));
+			if (settings.useSelect && source != 'select' && source != 'initial') {
+				self.data('timepicker-list').val(_roundAndFormatTime(_time2int(value), settings));
 			}
 		}
 
 		if (self.data('ui-timepicker-value') != value) {
 			self.data('ui-timepicker-value', value);
 			if (source == 'select') {
-				self.trigger('selectTime').trigger('changeTime').trigger('change');
+				self.trigger('selectTime').trigger('changeTime').trigger('change', 'timepicker');
 			} else if (source != 'error') {
 				self.trigger('changeTime');
 			}
@@ -759,7 +799,7 @@ requires jQuery 1.7+
 		var self = $(this);
 		var list = self.data('timepicker-list');
 
-		if (!list || !list.is(':visible')) {
+		if (!list || !_isVisible(list)) {
 			if (e.keyCode == 40) {
 				// show the list!
 				methods.show.call(self.get(0));
@@ -849,13 +889,9 @@ requires jQuery 1.7+
 	{
 		var self = $(this);
 		var list = self.data('timepicker-list');
+		var settings = self.data('timepicker-settings');
 
-		if (!list || !list.is(':visible')) {
-			return true;
-		}
-
-		if (!self.data('timepicker-settings').typeaheadHighlight) {
-			list.find('li').removeClass('ui-timepicker-selected');
+		if (!list || !_isVisible(list) || settings.disableTextInput) {
 			return true;
 		}
 
@@ -887,12 +923,12 @@ requires jQuery 1.7+
 			case 186: // colon
 			case 8: // backspace
 			case 46: // delete
-				_setSelected(self, list);
+				if (settings.typeaheadHighlight) {
+					_setSelected(self, list);
+				} else {
+					list.hide();
+				}
 				break;
-
-			default:
-				// list.find('li').removeClass('ui-timepicker-selected');
-				return;
 		}
 	}
 
@@ -914,15 +950,13 @@ requires jQuery 1.7+
 		}
 
 		if (timeValue !== null) {
-			if (typeof timeValue == 'string') {
-				self.val(timeValue);
-			} else {
-				var timeString = _int2time(timeValue, settings.timeFormat);
-				_setTimeValue(self, timeString, 'select');
+			if (typeof timeValue != 'string') {
+				timeValue = _int2time(timeValue, settings);
 			}
+
+			_setTimeValue(self, timeValue, 'select');
 		}
 
-		//self.trigger('change').trigger('selectTime');
 		return true;
 	}
 
@@ -959,23 +993,27 @@ requires jQuery 1.7+
 		return duration.join(' ');
 	}
 
-	function _int2time(seconds, format)
+	function _int2time(seconds, settings)
 	{
 		if (seconds === null) {
-			return;
+			return null;
 		}
 
 		var time = new Date(_baseDate.valueOf() + (seconds*1000));
 
 		if (isNaN(time.getTime())) {
-			return;
+			return null;
+		}
+
+		if ($.type(settings.timeFormat) === "function") {
+			return settings.timeFormat(time);
 		}
 
 		var output = '';
 		var hour, code;
-		for (var i=0; i<format.length; i++) {
+		for (var i=0; i<settings.timeFormat.length; i++) {
 
-			code = format.charAt(i);
+			code = settings.timeFormat.charAt(i);
 			switch (code) {
 
 				case 'a':
@@ -992,7 +1030,9 @@ requires jQuery 1.7+
 					break;
 
 				case 'G':
-					output += time.getHours();
+					hour = time.getHours();
+					if (seconds === _ONE_DAY) hour = 24;
+					output += hour;
 					break;
 
 				case 'h':
@@ -1007,7 +1047,7 @@ requires jQuery 1.7+
 
 				case 'H':
 					hour = time.getHours();
-					if (seconds === _ONE_DAY) hour = 24;
+					if (seconds === _ONE_DAY) hour = settings.show2400 ? 24 : 0;
 					output += (hour > 9) ? hour : '0'+hour;
 					break;
 
@@ -1024,7 +1064,7 @@ requires jQuery 1.7+
 				case '\\':
 					// escape character; add the next character and skip ahead
 					i++;
-					output += format.charAt(i);
+					output += settings.timeFormat.charAt(i);
 					break;
 
 				default:
@@ -1044,43 +1084,54 @@ requires jQuery 1.7+
 			return timeString.getHours()*3600 + timeString.getMinutes()*60 + timeString.getSeconds();
 		}
 
-		timeString = timeString.toLowerCase();
+		timeString = timeString.toLowerCase().replace(/[\s\.]/g, '');
 
-		var d = new Date(0);
-		var time;
+		// if the last character is an "a" or "p", add the "m"
+		if (timeString.slice(-1) == 'a' || timeString.slice(-1) == 'p') {
+			timeString += 'm';
+		}
+
+		var ampmRegex = '(' +
+			_lang.am.replace('.', '')+'|' +
+			_lang.pm.replace('.', '')+'|' +
+			_lang.AM.replace('.', '')+'|' +
+			_lang.PM.replace('.', '')+')?';
 
 		// try to parse time input
-		time = timeString.match(/^([0-2]?[0-9])\W?([0-5][0-9])?\W?([0-5][0-9])?\s*([pa]?)m?$/);
+		var pattern = new RegExp('^'+ampmRegex+'([0-9]?[0-9])\\W?([0-5][0-9])?\\W?([0-5][0-9])?'+ampmRegex+'$');
 
+		var time = timeString.match(pattern);
 		if (!time) {
 			return null;
 		}
 
-		var hour = parseInt(time[1]*1, 10);
-		var ampm = time[4];
+		var hour = parseInt(time[2]*1, 10) % 24;
+		var ampm = time[1] || time[5];
 		var hours = hour;
 
-		if (ampm) {
+		if (hour <= 12 && ampm) {
+			var isPm = (ampm == _lang.pm || ampm == _lang.PM);
+
 			if (hour == 12) {
-				hours = (time[4] == 'p') ? 12 : 0;
+				hours = isPm ? 12 : 0;
 			} else {
-				hours = (hour + (time[4] == 'p' ? 12 : 0));
+				hours = (hour + (isPm ? 12 : 0));
 			}
 		}
 
-		var minutes = ( time[2]*1 || 0 );
-		var seconds = ( time[3]*1 || 0 );
+		var minutes = ( time[3]*1 || 0 );
+		var seconds = ( time[4]*1 || 0 );
 		var timeInt = hours*3600 + minutes*60 + seconds;
 
 		// if no am/pm provided, intelligently guess based on the scrollDefault
-		if (!ampm && settings && settings._twelveHourTime && settings.scrollDefault) {
-			var delta = timeInt - settings.scrollDefault;
+		if (hour < 12 && !ampm && settings && settings._twelveHourTime && settings.scrollDefault) {
+			var delta = timeInt - settings.scrollDefault();
 			if (delta < 0 && delta >= _ONE_DAY / -2) {
 				timeInt = (timeInt + (_ONE_DAY / 2)) % _ONE_DAY;
 			}
 		}
 
-		return timeInt
+		return timeInt;
 	}
 
 	function _pad2(n) {
@@ -1103,23 +1154,45 @@ requires jQuery 1.7+
 	};
 	// Global defaults
 	$.fn.timepicker.defaults = {
+		appendTo: 'body',
 		className: null,
-		minTime: null,
-		maxTime: null,
+		closeOnWindowScroll: false,
+		disableTextInput: false,
+		disableTimeRanges: [],
+		disableTouchKeyboard: false,
 		durationTime: null,
-		step: 30,
-		showDuration: false,
-		showOnFocus: true,
-		timeFormat: 'g:ia',
+		forceRoundTime: false,
+		maxTime: null,
+		minTime: null,
+		noneOption: false,
+		orientation: 'l',
+		roundingFunction: function(seconds, settings) {
+			if (seconds === null) {
+				return null;
+			} else {
+				var offset = seconds % (settings.step*60); // step is in minutes
+
+				if (offset >= settings.step*30) {
+					// if offset is larger than a half step, round up
+					seconds += (settings.step*60) - offset;
+				} else {
+					// round down
+					seconds -= offset;
+				}
+
+				return seconds;
+			}
+		},
 		scrollDefault: null,
 		selectOnBlur: false,
-		disableTouchKeyboard: false,
-		forceRoundTime: false,
-		appendTo: 'body',
-		orientation: 'ltr',
-		disableTimeRanges: [],
-		closeOnWindowScroll: false,
+		show2400: false,
+		showDuration: false,
+		showOn: ['click', 'focus'],
+		showOnFocus: true,
+		step: 30,
+		stopScrollPropagation: false,
+		timeFormat: 'g:ia',
 		typeaheadHighlight: true,
-		noneOption: false
+		useSelect: false
 	};
 }));
